@@ -46,6 +46,3 @@ Open the app and you will see the login screen. Choose **Login as Coordinator** 
 | Coordinator district + date filtering | Coordinator > Dashboard filters |
 | Delivery route / map | Volunteer > Visit Detail > Route |
 
-## Screenshots
-
-See /screenshots for the report-aligned capture set.
