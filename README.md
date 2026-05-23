@@ -1,6 +1,6 @@
 # friendshipOnWheels — Prototype
 
-Live demo: <REPLACE WITH ACTUAL VERCEL URL>
+Live demo: https://fow-six.vercel.app/login
 
 ## Stack
 
