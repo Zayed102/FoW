@@ -1,8 +1,8 @@
-import { useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import DistrictFilter from "./DistrictFilter";
 import NotificationBell from "./NotificationBell";
 import { useApp } from "../context/AppContext";
-import { Heart, LogOut } from "lucide-react";
+import { Heart, LogOut, ClipboardList, CalendarDays } from "lucide-react";
 
 export default function Header() {
   const { role, logout, resetCoordinatorFilters } = useApp();
@@ -36,6 +36,40 @@ export default function Header() {
 
       <div className="flex items-center gap-2 md:gap-3">
         {role === "coordinator" && <DistrictFilter />}
+
+        {role === "volunteer" && (
+          <>
+            <NavLink
+              to="/volunteer/visits"
+              className={({ isActive }) =>
+                `flex items-center gap-1.5 px-3 min-h-10 rounded-lg text-sm font-medium transition border ${
+                  isActive
+                    ? "border-brandPink bg-brandPink/10 text-brandPink"
+                    : "border-gray-200 text-brandNavy hover:bg-gray-50"
+                }`
+              }
+              aria-label="My Visits"
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span className="hidden sm:inline">Visits</span>
+            </NavLink>
+            <NavLink
+              to="/volunteer/schedule"
+              className={({ isActive }) =>
+                `flex items-center gap-1.5 px-3 min-h-10 rounded-lg text-sm font-medium transition border ${
+                  isActive
+                    ? "border-brandPink bg-brandPink/10 text-brandPink"
+                    : "border-gray-200 text-brandNavy hover:bg-gray-50"
+                }`
+              }
+              aria-label="Schedule"
+            >
+              <CalendarDays className="w-4 h-4" />
+              <span className="hidden sm:inline">Schedule</span>
+            </NavLink>
+          </>
+        )}
+
         <NotificationBell />
         <button
           type="button"

@@ -1,11 +1,12 @@
 import { useState, useMemo, useCallback } from "react";
-import { X, Plus, ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { DISTRICTS, SERVICING_SUBURBS } from "../../data/districts";
-import { toDateStr, shortDate, weekdayOf, weekStart, addDays } from "../../utils/format";
+import { toDateStr, weekdayOf, weekStart, addDays } from "../../utils/format";
 
 const DAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const SCOPE_MAP = { default: "default", current: "currentWeek", next: "nextWeek" };
+const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
 const TABS = [
   { key: "default", label: "Default schedule" },
@@ -13,19 +14,46 @@ const TABS = [
   { key: "next", label: "Next week" },
 ];
 
-function buildTimeOptions() {
-  const opts = [];
-  for (let h = 6; h <= 22; h++) {
-    for (let m = 0; m < 60; m += 30) {
-      if (h === 22 && m > 0) break;
-      const val = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-      opts.push(val);
-    }
-  }
-  return opts;
+function formatHour(h) {
+  if (h === 0) return "12 AM";
+  if (h < 12) return `${h} AM`;
+  if (h === 12) return "12 PM";
+  return `${h - 12} PM`;
 }
 
-const TIME_OPTIONS = buildTimeOptions();
+function rangesToHours(ranges) {
+  const hours = new Set();
+  for (const r of ranges) {
+    const [start, end] = r.split("-");
+    const s = parseInt(start.split(":")[0], 10);
+    const e = parseInt(end.split(":")[0], 10);
+    for (let h = s; h < e; h++) hours.add(h);
+  }
+  return hours;
+}
+
+function hoursToRanges(hourSet) {
+  const sorted = [...hourSet].sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+  const ranges = [];
+  let start = sorted[0];
+  let end = sorted[0] + 1;
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === end) {
+      end = sorted[i] + 1;
+    } else {
+      ranges.push(
+        `${String(start).padStart(2, "0")}:00-${String(end).padStart(2, "0")}:00`
+      );
+      start = sorted[i];
+      end = sorted[i] + 1;
+    }
+  }
+  ranges.push(
+    `${String(start).padStart(2, "0")}:00-${String(end).padStart(2, "0")}:00`
+  );
+  return ranges;
+}
 
 const SUBURB_TO_DISTRICT = {};
 for (const [distKey, suburbs] of Object.entries(SERVICING_SUBURBS)) {
@@ -45,9 +73,6 @@ export default function Schedule() {
   const volunteer = volunteers.find((v) => v.id === currentVolunteerId);
 
   const [activeTab, setActiveTab] = useState("default");
-  const [openAddDay, setOpenAddDay] = useState(null);
-  const [draftStart, setDraftStart] = useState("09:00");
-  const [draftEnd, setDraftEnd] = useState("12:00");
 
   const currentWeekMon = weekStart(new Date());
   const nextWeekMon = addDays(currentWeekMon, 7);
@@ -58,10 +83,15 @@ export default function Schedule() {
     return DAY_KEYS.map((_, i) => addDays(mon, i));
   }, [activeTab, currentWeekMon, nextWeekMon]);
 
+  const todayString = toDateStr(new Date());
+  const todayRowIdx = weekDates
+    ? weekDates.findIndex((d) => toDateStr(d) === todayString)
+    : -1;
+
   const scope = SCOPE_MAP[activeTab];
   const availability = volunteer?.availability?.[scope] || {};
 
-  const lockedVisits = useMemo(() => {
+  const lockedMap = useMemo(() => {
     if (activeTab === "default" || !weekDates) return {};
     const startStr = toDateStr(weekDates[0]);
     const endStr = toDateStr(weekDates[6]);
@@ -74,39 +104,34 @@ export default function Schedule() {
         (r.status === "assigned" || r.status === "ongoing")
       ) {
         const dayKey = weekdayOf(r.visitDate);
-        if (!map[dayKey]) map[dayKey] = [];
-        map[dayKey].push(r.timeSlot);
+        if (!map[dayKey]) map[dayKey] = {};
+        const [startTime, endTime] = r.timeSlot.split("-");
+        const startH = parseInt(startTime.split(":")[0], 10);
+        const endH = parseInt(endTime.split(":")[0], 10);
+        let first = true;
+        for (let h = startH; h < endH; h++) {
+          map[dayKey][h] = { id: r.id, isFirst: first };
+          first = false;
+        }
       }
     }
     return map;
   }, [activeTab, weekDates, requests, currentVolunteerId]);
 
-  function handleRemoveRange(dayKey, range) {
-    const current = [...(availability[dayKey] || [])];
-    const updated = current.filter((r) => r !== range);
-    updateAvailability(currentVolunteerId, scope, { [dayKey]: updated });
-  }
-
-  function handleAddRange(dayKey) {
-    if (draftStart >= draftEnd) {
-      pushToast("Start must be before end", "error");
-      return;
-    }
-    const rangeStr = `${draftStart}-${draftEnd}`;
-    const current = [...(availability[dayKey] || [])];
-    current.push(rangeStr);
-    current.sort((a, b) => a.localeCompare(b));
-    updateAvailability(currentVolunteerId, scope, { [dayKey]: current });
-    setOpenAddDay(null);
-    setDraftStart("09:00");
-    setDraftEnd("12:00");
-  }
-
-  function openAdd(dayKey) {
-    setOpenAddDay(dayKey);
-    setDraftStart("09:00");
-    setDraftEnd("12:00");
-  }
+  const handleCellToggle = useCallback(
+    (dayKey, hour) => {
+      const ranges = availability[dayKey] || [];
+      const hours = rangesToHours(ranges);
+      if (hours.has(hour)) {
+        hours.delete(hour);
+      } else {
+        hours.add(hour);
+      }
+      const newRanges = hoursToRanges(hours);
+      updateAvailability(currentVolunteerId, scope, { [dayKey]: newRanges }, true);
+    },
+    [availability, currentVolunteerId, scope, updateAvailability]
+  );
 
   const handleDistrictChange = useCallback(
     (e) => {
@@ -139,10 +164,7 @@ export default function Schedule() {
           <button
             key={tab.key}
             type="button"
-            onClick={() => {
-              setActiveTab(tab.key);
-              setOpenAddDay(null);
-            }}
+            onClick={() => setActiveTab(tab.key)}
             className={`shrink-0 min-h-10 px-4 pb-2 text-sm whitespace-nowrap transition-colors ${
               activeTab === tab.key
                 ? "border-b-2 border-brandPink text-brandPink font-semibold"
@@ -160,52 +182,104 @@ export default function Schedule() {
         </p>
       )}
 
-      <div className="mt-4 hidden md:grid grid-cols-7 gap-2">
-        {DAY_KEYS.map((dayKey, i) => (
-          <DayCard
-            key={dayKey}
-            dayKey={dayKey}
-            date={weekDates?.[i]}
-            showDate={activeTab !== "default"}
-            ranges={availability[dayKey] || []}
-            locked={lockedVisits[dayKey] || []}
-            isAddOpen={openAddDay === dayKey}
-            onOpenAdd={() => openAdd(dayKey)}
-            onCloseAdd={() => setOpenAddDay(null)}
-            onRemove={(range) => handleRemoveRange(dayKey, range)}
-            onAdd={() => handleAddRange(dayKey)}
-            draftStart={draftStart}
-            draftEnd={draftEnd}
-            setDraftStart={setDraftStart}
-            setDraftEnd={setDraftEnd}
-            pushToast={pushToast}
-            layout="column"
-          />
-        ))}
+      <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-gray-600">
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded bg-brandTeal" /> Available
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded bg-amber-400" /> Assigned visit
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded bg-gray-200" /> Unset
+        </span>
       </div>
 
-      <div className="mt-4 md:hidden flex flex-col gap-2">
-        {DAY_KEYS.map((dayKey, i) => (
-          <DayCard
-            key={dayKey}
-            dayKey={dayKey}
-            date={weekDates?.[i]}
-            showDate={activeTab !== "default"}
-            ranges={availability[dayKey] || []}
-            locked={lockedVisits[dayKey] || []}
-            isAddOpen={openAddDay === dayKey}
-            onOpenAdd={() => openAdd(dayKey)}
-            onCloseAdd={() => setOpenAddDay(null)}
-            onRemove={(range) => handleRemoveRange(dayKey, range)}
-            onAdd={() => handleAddRange(dayKey)}
-            draftStart={draftStart}
-            draftEnd={draftEnd}
-            setDraftStart={setDraftStart}
-            setDraftEnd={setDraftEnd}
-            pushToast={pushToast}
-            layout="row"
-          />
-        ))}
+      <div className="mt-3 overflow-x-auto rounded-xl border border-gray-200">
+        <table className="border-collapse" style={{ minWidth: 600 }}>
+          <thead>
+            <tr>
+              <th className="sticky left-0 z-10 bg-white border-b border-r border-gray-200 px-2 py-2 text-xs font-semibold text-gray-500 text-left min-w-[4.5rem] w-[4.5rem]">
+                Day
+              </th>
+              {HOURS.map((hour) => (
+                <th
+                  key={hour}
+                  className="border-b border-gray-200 px-0 py-2 text-[11px] font-semibold text-gray-600 text-center min-w-11 w-11"
+                >
+                  {formatHour(hour)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {DAY_KEYS.map((day, rowIdx) => {
+              const isToday = activeTab === "current" && todayRowIdx === rowIdx;
+              return (
+                <tr key={day}>
+                  <td
+                    className={`sticky left-0 z-10 border-r border-gray-200 px-2 py-0 text-xs font-semibold whitespace-nowrap min-h-11 h-11 ${
+                      isToday ? "bg-brandPink/10 text-brandPink" : "bg-white text-gray-600"
+                    }`}
+                  >
+                    <div>{day}</div>
+                    {weekDates && (
+                      <div className="font-normal text-[10px]">
+                        {weekDates[rowIdx].getDate()}/{weekDates[rowIdx].getMonth() + 1}
+                      </div>
+                    )}
+                  </td>
+                  {HOURS.map((hour) => {
+                    const locked = lockedMap[day]?.[hour];
+                    const dayRanges = availability[day] || [];
+                    const isAvail = rangesToHours(dayRanges).has(hour);
+                    const todayRing = isToday ? " ring-1 ring-inset ring-brandPink/20" : "";
+
+                    if (locked) {
+                      return (
+                        <td key={hour} className="p-0 border-t border-gray-100">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              pushToast(
+                                "Cancel the visit from your Visit list to free this slot",
+                                "info"
+                              )
+                            }
+                            className={`w-full min-h-11 h-11 min-w-11 flex items-center justify-center bg-amber-400/90 text-white text-[9px] font-semibold leading-tight${todayRing}`}
+                          >
+                            {locked.isFirst ? `#${locked.id}` : ""}
+                          </button>
+                        </td>
+                      );
+                    }
+
+                    if (isAvail) {
+                      return (
+                        <td key={hour} className="p-0 border-t border-gray-100">
+                          <button
+                            type="button"
+                            onClick={() => handleCellToggle(day, hour)}
+                            className={`w-full min-h-11 h-11 min-w-11 bg-brandTeal text-white transition hover:bg-brandTeal/80${todayRing}`}
+                          />
+                        </td>
+                      );
+                    }
+
+                    return (
+                      <td key={hour} className="p-0 border-t border-gray-100">
+                        <button
+                          type="button"
+                          onClick={() => handleCellToggle(day, hour)}
+                          className={`w-full min-h-11 h-11 min-w-11 bg-gray-50 transition hover:bg-brandTeal/20${todayRing}`}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       <hr className="my-6 border-t border-gray-200" />
@@ -282,183 +356,5 @@ export default function Schedule() {
         </div>
       </section>
     </div>
-  );
-}
-
-function DayCard({
-  dayKey,
-  date,
-  showDate,
-  ranges,
-  locked,
-  isAddOpen,
-  onOpenAdd,
-  onCloseAdd,
-  onRemove,
-  onAdd,
-  draftStart,
-  draftEnd,
-  setDraftStart,
-  setDraftEnd,
-  pushToast,
-  layout,
-}) {
-  const dateLabel = date ? shortDate(date) : null;
-
-  if (layout === "row") {
-    return (
-      <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 flex items-start gap-3">
-        <div className="w-20 shrink-0">
-          <p className="font-semibold text-brandNavy text-sm">{dayKey}</p>
-          {showDate && dateLabel && (
-            <p className="text-xs text-gray-400">{dateLabel}</p>
-          )}
-        </div>
-        <div className="flex-1 flex flex-col gap-2">
-          <PillsAndAdd
-            ranges={ranges}
-            locked={locked}
-            isAddOpen={isAddOpen}
-            onOpenAdd={onOpenAdd}
-            onCloseAdd={onCloseAdd}
-            onRemove={onRemove}
-            onAdd={onAdd}
-            draftStart={draftStart}
-            draftEnd={draftEnd}
-            setDraftStart={setDraftStart}
-            setDraftEnd={setDraftEnd}
-            pushToast={pushToast}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={`bg-white rounded-2xl shadow-sm p-3 md:p-4 flex flex-col gap-2${isAddOpen ? " relative z-10" : ""}`}>
-      <div>
-        <p className="font-semibold text-brandNavy text-sm">{dayKey}</p>
-        {showDate && dateLabel && (
-          <p className="text-xs text-gray-400">{dateLabel}</p>
-        )}
-      </div>
-      <PillsAndAdd
-        ranges={ranges}
-        locked={locked}
-        isAddOpen={isAddOpen}
-        onOpenAdd={onOpenAdd}
-        onCloseAdd={onCloseAdd}
-        onRemove={onRemove}
-        onAdd={onAdd}
-        draftStart={draftStart}
-        draftEnd={draftEnd}
-        setDraftStart={setDraftStart}
-        setDraftEnd={setDraftEnd}
-        pushToast={pushToast}
-      />
-    </div>
-  );
-}
-
-function PillsAndAdd({
-  ranges,
-  locked,
-  isAddOpen,
-  onOpenAdd,
-  onCloseAdd,
-  onRemove,
-  onAdd,
-  draftStart,
-  draftEnd,
-  setDraftStart,
-  setDraftEnd,
-  pushToast,
-}) {
-  return (
-    <>
-      <div className="flex flex-wrap gap-1.5">
-        {ranges.map((r) => (
-          <span
-            key={r}
-            className="inline-flex items-center bg-brandTeal/15 text-brandTeal rounded-full px-3 py-1 text-xs font-semibold"
-          >
-            {r}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onRemove(r); }}
-              className="ml-1 min-h-5 min-w-5 inline-flex items-center justify-center hover:text-brandTeal/70 transition"
-              aria-label={`Remove ${r}`}
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </span>
-        ))}
-        {locked.map((slot) => (
-          <button
-            key={`locked-${slot}`}
-            type="button"
-            onClick={() =>
-              pushToast(
-                "Cancel the visit from your Visit list to free this slot",
-                "info"
-              )
-            }
-            className="inline-flex items-center bg-brandTeal text-white rounded-full px-3 py-1 min-h-7 text-xs font-semibold cursor-pointer"
-          >
-            {slot}
-          </button>
-        ))}
-      </div>
-
-      {!isAddOpen ? (
-        <button
-          type="button"
-          onClick={onOpenAdd}
-          className="inline-flex items-center gap-1 text-xs text-brandPink min-h-10 hover:underline"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add range
-        </button>
-      ) : (
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <select
-            value={draftStart}
-            onChange={(e) => setDraftStart(e.target.value)}
-            className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs min-h-10"
-          >
-            {TIME_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-gray-400 hidden sm:block">–</span>
-          <select
-            value={draftEnd}
-            onChange={(e) => setDraftEnd(e.target.value)}
-            className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs min-h-10"
-          >
-            {TIME_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={onAdd}
-            className="bg-brandPink hover:bg-brandPink/90 text-white rounded-lg min-h-10 px-4 text-xs font-semibold w-full sm:w-auto transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Add
-          </button>
-          <button
-            type="button"
-            onClick={onCloseAdd}
-            className="bg-white border border-brandNavy/20 hover:border-brandNavy/40 text-brandNavy rounded-lg min-h-10 px-4 text-xs font-semibold w-full sm:w-auto transition"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-    </>
   );
 }

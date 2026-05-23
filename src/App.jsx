@@ -15,6 +15,7 @@ import VisitList from "./pages/volunteer/VisitList";
 import VisitDetail from "./pages/volunteer/VisitDetail";
 import Schedule from "./pages/volunteer/Schedule";
 import VisitRoute from "./pages/volunteer/Route";
+import VolunteerNotifications from "./pages/volunteer/Notifications";
 
 function ToastContainer() {
   const { toasts } = useApp();
@@ -78,6 +79,7 @@ export default function App() {
               <Route path="volunteer/visits/:id" element={<VisitDetail />} />
               <Route path="volunteer/visits/:id/route" element={<VisitRoute />} />
               <Route path="volunteer/schedule" element={<Schedule />} />
+              <Route path="volunteer/notifications" element={<VolunteerNotifications />} />
             </Route>
           </Route>
         </Routes>

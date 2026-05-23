@@ -128,8 +128,7 @@ export default function RequestDetail() {
   }
 
   const needsCandidateList =
-    request.status === "unassigned" ||
-    (request.status === "cancelled" && !assignedVol);
+    request.status === "unassigned" || request.status === "cancelled";
 
   return (
     <div className="w-full">
@@ -239,13 +238,7 @@ export default function RequestDetail() {
             <>
               <hr className="border-t border-gray-200" />
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                Request cancelled — reassignment required.{" "}
-                <Link
-                  to="/coordinator/reassignment"
-                  className="font-semibold text-brandPink hover:underline"
-                >
-                  Go to reassignment
-                </Link>
+                Request cancelled — pick a new volunteer on the right to reassign.
               </div>
             </>
           )}

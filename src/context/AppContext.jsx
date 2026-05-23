@@ -55,16 +55,31 @@ export function AppProvider({ children }) {
   }, [pushToast]);
 
   const cancelVisit = useCallback((requestId) => {
+    let reqName = "";
     setRequests((prev) =>
-      prev.map((r) =>
-        r.id === requestId ? { ...r, status: "cancelled" } : r
-      )
+      prev.map((r) => {
+        if (r.id !== requestId) return r;
+        reqName = r.requestorName;
+        return { ...r, status: "unassigned", assignedVolunteerId: null };
+      })
     );
     setVisits((prev) =>
       prev.map((v) =>
         v.requestId === requestId ? { ...v, status: "cancelled" } : v
       )
     );
+    setNotifications((prev) => [
+      {
+        id: `notif-cancel-${Date.now()}`,
+        type: "cancellation",
+        message: `Volunteer cancelled assignment for ${reqName || "a request"} (${requestId}). Reassignment needed.`,
+        requestId,
+        createdAt: new Date().toISOString(),
+        read: false,
+        audience: "coordinator",
+      },
+      ...prev,
+    ]);
     pushToast("Visit cancelled", "warning");
   }, [pushToast]);
 
@@ -97,7 +112,7 @@ export function AppProvider({ children }) {
     pushToast("Outcome recorded", "success");
   }, [pushToast]);
 
-  const updateAvailability = useCallback((volunteerId, week, dayRanges) => {
+  const updateAvailability = useCallback((volunteerId, week, dayRanges, silent = false) => {
     setVolunteers((prev) =>
       prev.map((v) =>
         v.id === volunteerId
@@ -105,7 +120,7 @@ export function AppProvider({ children }) {
           : v
       )
     );
-    pushToast("Availability updated", "success");
+    if (!silent) pushToast("Availability updated", "success");
   }, [pushToast]);
 
   const updateSuburbRanking = useCallback((volunteerId, orderedSuburbArray) => {
